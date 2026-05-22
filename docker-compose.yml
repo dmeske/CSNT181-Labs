@@ -1,0 +1,179 @@
+##############################################################
+#  CYBERSECURITY STUDENT LAB — Docker Compose v3.9
+#  Isolated bridge network: 10.10.0.0/24
+#
+#  Services:
+#    kali        10.10.0.10  — Attacker workstation
+#    dvwa        10.10.0.20  — Damn Vulnerable Web App
+#    metasploit  10.10.0.30  — Metasploitable 3 (Ubuntu)
+#    juiceshop   10.10.0.40  — OWASP Juice Shop
+#    mysql       10.10.0.50  — DVWA backend DB (internal)
+#
+#  ⚠ WARNING: All containers intentionally vulnerable.
+#             Never expose to public internet.
+##############################################################
+
+version: "3.9"
+
+networks:
+  lab_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/24
+          gateway: 10.10.0.1
+    driver_opts:
+      com.docker.network.bridge.name: lab_br0
+
+volumes:
+  kali_home:
+  dvwa_data:
+  mysql_data:
+  juice_data:
+
+services:
+
+  # ─────────────────────────────────────────────
+  #  KALI LINUX — Attacker Machine
+  # ─────────────────────────────────────────────
+  kali:
+    image: kalilinux/kali-rolling:latest
+    container_name: kali-attacker
+    hostname: kali
+    stdin_open: true
+    tty: true
+    networks:
+      lab_net:
+        ipv4_address: 10.10.0.10
+    volumes:
+      - kali_home:/root
+      - ./kali-config/setup.sh:/setup.sh:ro
+      - ./kali-config/lab-notes:/root/lab-notes:ro
+    environment:
+      - TERM=xterm-256color
+    command: >
+      bash -c "
+        apt-get update -qq &&
+        apt-get install -y -qq
+          nmap masscan netcat-traditional
+          curl wget git python3 python3-pip
+          metasploit-framework hydra
+          sqlmap nikto gobuster
+          wireshark-common tshark
+          john hashcat wordlists
+          burpsuite 2>/dev/null || true &&
+        echo '[✓] Kali tools installed. Run: bash /setup.sh' &&
+        tail -f /dev/null
+      "
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    restart: unless-stopped
+    profiles: ["full", "kali"]
+
+  # ─────────────────────────────────────────────
+  #  DVWA — Damn Vulnerable Web Application
+  # ─────────────────────────────────────────────
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    container_name: dvwa-target
+    hostname: dvwa
+    networks:
+      lab_net:
+        ipv4_address: 10.10.0.20
+    ports:
+      - "8080:80"          # http://localhost:8080
+    environment:
+      - DB_SERVER=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=dvwa
+      - DB_USERNAME=dvwa
+      - DB_PASSWORD=p@ssw0rd
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - dvwa_data:/var/www/html
+    restart: unless-stopped
+    profiles: ["full", "web"]
+
+  # ─────────────────────────────────────────────
+  #  MYSQL — DVWA backend (internal only)
+  # ─────────────────────────────────────────────
+  mysql:
+    image: mysql:5.7
+    container_name: dvwa-mysql
+    hostname: mysql
+    networks:
+      lab_net:
+        ipv4_address: 10.10.0.50
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_p@ssw0rd
+      - MYSQL_DATABASE=dvwa
+      - MYSQL_USER=dvwa
+      - MYSQL_PASSWORD=p@ssw0rd
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "dvwa", "-pp@ssw0rd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    profiles: ["full", "web"]
+
+  # ─────────────────────────────────────────────
+  #  METASPLOITABLE 3 — Ubuntu Target
+  # ─────────────────────────────────────────────
+  metasploitable:
+    image: tleemcjr/metasploitable2:latest   # community image — swap for MS3 if licensed
+    container_name: metasploitable-target
+    hostname: metasploitable
+    networks:
+      lab_net:
+        ipv4_address: 10.10.0.30
+    ports:
+      - "2222:22"          # SSH   (msfadmin / msfadmin)
+      - "8181:80"          # HTTP  Apache
+      - "2121:21"          # FTP   (vsftpd backdoor)
+      - "5900:5900"        # VNC
+      - "3306:3306"        # MySQL
+    restart: unless-stopped
+    profiles: ["full", "network"]
+
+  # ─────────────────────────────────────────────
+  #  OWASP JUICE SHOP — Modern Web App Target
+  # ─────────────────────────────────────────────
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    container_name: juiceshop-target
+    hostname: juiceshop
+    networks:
+      lab_net:
+        ipv4_address: 10.10.0.40
+    ports:
+      - "3000:3000"        # http://localhost:3000
+    environment:
+      - NODE_ENV=unsafe    # disables rate-limiting for lab use
+    volumes:
+      - juice_data:/juice-shop/data
+    restart: unless-stopped
+    profiles: ["full", "web"]
+
+  # ─────────────────────────────────────────────
+  #  PORTAINER — Optional lab management UI
+  # ─────────────────────────────────────────────
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: lab-portainer
+    hostname: portainer
+    networks:
+      lab_net:
+        ipv4_address: 10.10.0.60
+    ports:
+      - "9443:9443"        # https://localhost:9443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./configs/portainer:/data
+    restart: unless-stopped
+    profiles: ["full", "mgmt"]
