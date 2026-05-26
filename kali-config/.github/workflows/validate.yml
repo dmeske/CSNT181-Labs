@@ -1,0 +1,46 @@
+name: Validate Lab
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose syntax
+        run: docker compose --profile full config --quiet
+
+      - name: Check install script syntax
+        run: bash -n install.sh
+
+      - name: Check setup script syntax
+        run: bash -n kali-config/setup.sh
+
+      - name: Pull web images (smoke test)
+        run: docker compose --profile web pull
+
+      - name: Start web targets
+        run: docker compose --profile web up -d
+
+      - name: Wait for DVWA
+        run: |
+          for i in {1..15}; do
+            curl -sf http://localhost:8080 && echo "DVWA up" && break
+            echo "Waiting... ($i/15)"; sleep 5
+          done
+
+      - name: Wait for Juice Shop
+        run: |
+          for i in {1..15}; do
+            curl -sf http://localhost:3000 && echo "Juice Shop up" && break
+            echo "Waiting... ($i/15)"; sleep 5
+          done
+
+      - name: Tear down
+        if: always()
+        run: docker compose --profile web down -v
