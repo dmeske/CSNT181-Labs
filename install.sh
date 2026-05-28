@@ -5,7 +5,7 @@
 #  It installs everything and starts the lab automatically.
 #
 #  Usage (students paste this one line into Terminal):
-#    curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main/install.sh | bash
+#    curl -fsSL https://raw.githubusercontent.com/dmeske/CSNT181-Labs/main/install.sh | bash
 # ============================================================
 
 set -e   # exit on any error
@@ -146,7 +146,7 @@ fi
 
 # ── Download Lab Files ─────────────────────────────────────
 LAB_DIR="$HOME/pentest-lab"
-REPO_URL="https://github.com/YOUR_ORG/YOUR_REPO"  # ← update this
+REPO_URL="https://github.com/dmeske/CSNT181-Labs"  
 
 info "Setting up lab directory at $LAB_DIR ..."
 
